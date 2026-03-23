@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environment
+#.venv/
+#.env
+.venv
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# VSCode
+.vscode/
+
+# Data (important for your project)
+data/
+*.csv
+*.json
+
+# Model files
+*.pt
+*.pth
+*.h5
