@@ -21,3 +21,12 @@
 #         return results
 #     except Exception:
 #         return []
+import json
+def load_query_bundles(file_path="query_bundles.json"):
+    try:
+        with open(file_path, "r") as f:
+            bundles = json.load(f)
+        return bundles
+    except FileNotFoundError:
+        print("Error: The query bundle file was not found.")
+        return []

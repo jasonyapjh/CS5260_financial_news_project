@@ -1,6 +1,27 @@
 import streamlit as st
 from utils.database import get_user_watchlist, update_ticker_status
 
+from utils.llm import call_openai_test
+import json
+import time
+
+
+# =================================
+# ---Constant----------------------
+# =================================
+STEP_NAMES = [
+    "Watchlist & Context Agent",
+    "News Retrieval Agent",
+    "Noise Filter & Dedup Agent",
+    "Event Clustering Agent",
+    "Impact Summarization Agent",
+    "Importance Ranking Agent",
+    "Digest Packaging Agent",
+]
+
+# =================================
+# ---Custom CSS--------------------
+# =================================
 def inject_custom_css(watchlist_data):
     """Generates and injects dynamic CSS for ticker buttons."""
     style_blocks = ""
@@ -14,7 +35,7 @@ def inject_custom_css(watchlist_data):
             .st-key-{safe_ticker} button {{
                 background-color: {current_bg} !important;
                 color: white !important;
-                border-radius: 20px !important;
+                border-radius: 10px !important;
                 font-weight: bold !important;
                 font-size: 25px !important;
                 border: 1px solid {current_bg} !important;
@@ -61,7 +82,7 @@ def show():
         rows = [tickers[i:i + 4] for i in range(0, len(tickers), 4)]
 
         for row in rows:
-            cols = st.columns(4)
+            cols = st.columns(5)
             for i, ticker in enumerate(row):
                 info = st.session_state.watchlist[ticker]
                 is_active = info.get("active", False)
@@ -81,13 +102,145 @@ def show():
 
         # 4. Action Section
         active_tickers = [t for t, info in st.session_state.watchlist.items() if info.get("active")]
+        st.success(f"Selected: **{', '.join(active_tickers)}**")
+        # Run button
+        run_disabled = (
+            st.session_state.running
+            # or not openai_key
+            # or not newsapi_key
+            or not active_tickers
+        )
+
+        if st.button(
+            "⚡  Run Pipeline" if not st.session_state.running else "⏳  Running...",
+            use_container_width=True,
+            disabled=run_disabled,
+            type="primary",
+        ):
+            st.session_state.running = True
+            st.session_state.pipeline_result = None
+            st.session_state.step_logs = []
+            st.session_state.current_step = 0
+            st.rerun()
+# ══════════════════════════════════════════════════════════════════════
+# RUNNING — execute pipeline and show live progress
+# ══════════════════════════════════════════════════════════════════════
+    if st.session_state.running and not st.session_state.pipeline_result:
+        st.info("Starting AI analysis... this may take a moment.")
+        # Progress tracking
+        status_text = st.empty()
+        overall_progress = st.progress(0, text="Starting pipeline…")
+        #agent_info = st.empty()
+
+        step_containers = []
+        for i, name in enumerate(STEP_NAMES):
+            col_icon, col_body = st.columns([1, 11])
+            with col_icon:
+                icon_slot = st.empty()
+                icon_slot.markdown(
+                    f"<div style='width:32px;height:32px;border-radius:50%;border:1px solid #1e2d3d;"
+                    f"display:flex;align-items:center;justify-content:center;"
+                    f"font-family:JetBrains Mono;font-size:12px;color:#4a5a6a;background:#0e1419'>{i+1}</div>",
+                    unsafe_allow_html=True,
+                )
+            with col_body:
+                c1, c2 = st.columns([1,3])
+                with c1:
+                    name_slot = st.empty()
+                    name_slot.markdown(f"<span style='color:#4a5a6a;font-weight:600;margin:0;'>{name}</span>", unsafe_allow_html=True)
+                with c2:
+                    log_slot  = st.empty()
+                    log_slot.markdown("<span style='font-size:15px;color:#2a3a4a;'>Waiting…</span>", unsafe_allow_html=True)
+            step_containers.append((icon_slot, name_slot, log_slot))
+
+        log_box = st.empty()
+
+
+
+        import agents.watchlist_agent as wa
+
+        _originals = {
+            "watchlist": wa.watchlist_agent,
+        }
+
+        def make_wrapper(fn, step_idx):
+            def wrapper(state):
+                # Mark active
+                icon_slot, name_slot, log_slot = step_containers[step_idx - 1]
+                icon_slot.markdown(
+                    f"<div style='width:32px;height:32px;border-radius:50%;"
+                    f"border:1px solid #00c8ff;background:rgba(0,200,255,.1);"
+                    f"display:flex;align-items:center;justify-content:center;"
+                    f"font-family:JetBrains Mono;font-size:12px;color:#00c8ff'>{step_idx}</div>",
+                    unsafe_allow_html=True,
+                )
+                name_slot.markdown(f"<span style='color:#f1f5f9;font-weight:700'>{STEP_NAMES[step_idx-1]}</span>", unsafe_allow_html=True)
+                log_slot.markdown("<span style='font-size:12px;color:#00c8ff;'>Running…</span>", unsafe_allow_html=True)
+                overall_progress.progress(
+                    (step_idx - 1) / 7,
+                    text=f"Agent {step_idx}/7: {STEP_NAMES[step_idx-1]}",
+                )
+
+                result = fn(state)
+
+                # Mark done
+                icon_slot.markdown(
+                    f"<div style='width:32px;height:32px;border-radius:50%;"
+                    f"border:1px solid #22c55e;background:#22c55e;"
+                    f"display:flex;align-items:center;justify-content:center;"
+                    f"font-size:14px;color:#000'>✓</div>",
+                    unsafe_allow_html=True,
+                )
+                name_slot.markdown(f"<span style='color:#22c55e;font-weight:700'>{STEP_NAMES[step_idx-1]}</span>", unsafe_allow_html=True)
+
+                # Show latest log line
+                logs = result.get("step_logs", [])
+                if logs:
+                    last = logs[-1]
+                    log_slot.markdown(
+                        f"<span style='font-size:15px;color:#22c55e;'>{last}</span>",
+                        unsafe_allow_html=True,
+                    )
+                    st.session_state.step_logs = logs
+                print(logs)
+                overall_progress.progress(step_idx / 7, text=f"Agent {step_idx}/7 complete")
+                return result
+            return wrapper
         
-        if active_tickers:
-            st.success(f"Selected: **{', '.join(active_tickers)}**")
-            if st.button("⚡ Generate Digest", use_container_width=True, type="primary"):
-                st.info("Starting AI analysis... this may take a moment.")
-        else:
-            st.button("⚡ Generate Digest", use_container_width=True, type="primary", disabled=True)
+        wa.watchlist_agent     = make_wrapper(_originals["watchlist"],     1)
+
+        try:
+            status_text.info("🔄 Starting pipeline execution...")
+
+            from agents.pipeline import run_pipeline
+            result = run_pipeline(watchlist=active_tickers, openai_key='')
+
+            
+            if result.get("error"):
+                st.error(f"Pipeline error: {result['error']}")
+                st.session_state.running = False
+            else:
+                time.sleep(2)
+                overall_progress.progress(1.0, text="✓ Pipeline complete!")
+                st.session_state.pipeline_result = result
+                st.session_state.running = False
+
+                # output_path = "agent_1_output.json"
+                # with open(output_path, "w") as f:
+                #     json.dump( st.session_state.pipeline_result, f, indent=4)
+
+        except Exception as e:
+            status_text.error(f"✗ Error: {str(e)}")
+            st.session_state.running = False
+        finally:
+                # Always restore originals
+                wa.watchlist_agent     = _originals["watchlist"]
+        if st.session_state.pipeline_result:
+            time.sleep(0.5)
+            st.rerun()
+
+    elif st.session_state.pipeline_result:
+        result = st.session_state.pipeline_result 
 
 
 

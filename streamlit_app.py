@@ -14,6 +14,7 @@ from streamlit_pages import watchlist
 from streamlit_pages import settings
 from streamlit_pages import dashboard
 
+
 # Load environment variables 
 load_dotenv()
 
@@ -44,11 +45,11 @@ with st.sidebar:
     )
     st.markdown("---")
     
-    # User info
-    if "user_id" in st.session_state:
-        st.markdown(f"**User ID:** {st.session_state.user_id}")
+    # # User info
+    # if "user_id" in st.session_state:
+    #     st.markdown(f"**User ID:** {st.session_state.user_id}")
     
-    st.markdown("---")
+    # st.markdown("---")
     st.markdown("""
     **About this app:**
     
@@ -59,8 +60,7 @@ with st.sidebar:
     4. Generate curated digests
     
     **Supported LLM Providers:**
-    - OpenAI (GPT-4, GPT-3.5)
-    - Google Gemini
+    - OpenAI (GPT-4o)
     """)
 
 # Main content area
@@ -95,9 +95,6 @@ elif selected == "News Analysis":
 elif selected == "Settings":
     settings.show()
 
-
-
-# st.write("Current Watchlist:", st.session_state.watchlist)
 
 
 # Footer

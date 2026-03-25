@@ -32,6 +32,7 @@ def _save_json(filepath: Path, data: Any):
     filepath.parent.mkdir(parents=True, exist_ok=True)
     with open(filepath, 'w') as f:
         json.dump(data, f, indent=2, default=str)
+        
 def init_db():
     """Initialize JSON data files"""
     # Create empty files if they don't exist
