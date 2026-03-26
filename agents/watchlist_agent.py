@@ -30,6 +30,11 @@ def watchlist_agent(state: PipelineState) -> PipelineState:
             bundles = json.load(f)
         #response = call_openai(prompt, state["openai_key"])
         #bundles = extract_json(response)
+
+        # output_path = "agent_1_output.json"
+        # with open(output_path, "w") as f:
+        #     json.dump(bundles, f, indent=4)
+
         state["query_bundles"] = bundles
         state["step_logs"].append(f"[Agent 1] ✓ Generated {len(bundles)} query bundles")
     except Exception as e:

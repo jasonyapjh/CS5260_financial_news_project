@@ -158,9 +158,10 @@ def show():
 
 
         import agents.watchlist_agent as wa
-
+        import agents.retrieval_agent as ra
         _originals = {
             "watchlist": wa.watchlist_agent,
+            "retrieval": ra.retrieval_agent,
         }
 
         def make_wrapper(fn, step_idx):
@@ -208,6 +209,8 @@ def show():
             return wrapper
         
         wa.watchlist_agent     = make_wrapper(_originals["watchlist"],     1)
+        ra.retrieval_agent     = make_wrapper(_originals["retrieval"],     2)
+
 
         try:
             status_text.info("🔄 Starting pipeline execution...")
@@ -234,7 +237,8 @@ def show():
             st.session_state.running = False
         finally:
                 # Always restore originals
-                wa.watchlist_agent     = _originals["watchlist"]
+                wa.watchlist_agent = _originals["watchlist"]
+                ra.retrieval_agent = _originals["retrieval"]
         if st.session_state.pipeline_result:
             time.sleep(0.5)
             st.rerun()

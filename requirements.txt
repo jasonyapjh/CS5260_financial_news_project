@@ -5,3 +5,4 @@ streamlit_option_menu
 streamlit_searchbox
 yfinance
 python-dotenv
+feedparser

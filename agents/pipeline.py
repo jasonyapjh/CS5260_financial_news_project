@@ -1,6 +1,7 @@
 from langgraph.graph import StateGraph, END
 from utils.state import PipelineState
 from .watchlist_agent import watchlist_agent
+from .retrieval_agent import retrieval_agent
 
 def should_continue(state: PipelineState) -> str:
     """Route: abort on error, else continue."""
@@ -15,11 +16,27 @@ def abort_node(state: PipelineState) -> PipelineState:
 def build_graph() -> StateGraph:
     g = StateGraph(PipelineState)
 
-    g.add_node("watchlist",     watchlist_agent)
-
+    g.add_node("watchlist", watchlist_agent)
+    g.add_node("retrieval", retrieval_agent)
+    g.add_node("abort", abort_node)
     g.set_entry_point("watchlist")
 
-    g.set_finish_point("watchlist")
+    for src, dst in [
+        ("watchlist",     "retrieval"),
+        # ("retrieval",     "filter"),
+        # ("filter",        "clustering"),
+        # ("clustering",    "summarization"),
+        # ("summarization", "ranking"),
+        # ("ranking",       "notification"),
+    ]:
+        g.add_conditional_edges(
+            src,
+            should_continue,
+            {"continue": dst, "abort": "abort"},
+        )
+    g.add_edge("retrieval", END)
+    g.add_edge("abort", END)
+    # g.set_finish_point("watchlist")
 
     return g.compile()
 
@@ -34,8 +51,8 @@ def run_pipeline(
         "watchlist": watchlist,
         "openai_key": openai_key,
         "query_bundles": [],
-        # "raw_articles": [],
-        # "raw_article_count": 0,
+        "raw_articles": [],
+        "raw_article_count": 0,
         # "clean_articles": [],
         # "clean_article_count": 0,
         # "event_clusters": [],
