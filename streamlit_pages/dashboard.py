@@ -4,7 +4,7 @@ from utils.database import get_user_watchlist, update_ticker_status
 from utils.llm import call_openai_test
 import json
 import time
-
+import datetime as datetime
 
 # =================================
 # ---Constant----------------------
@@ -18,7 +18,16 @@ STEP_NAMES = [
     "Importance Ranking Agent",
     "Digest Packaging Agent",
 ]
-
+PRIORITY_COLORS = {"High": "#ef4444", "Medium": "#f97316", "Low": "#22c55e"}
+PRIORITY_BG     = {"High": "#2a0a0a", "Medium": "#2a1400", "Low": "#0a2014"}
+SENTIMENT_EMOJI = {"bullish": "▲", "bearish": "▼", "neutral": "◆"}
+SENTIMENT_COLOR = {"bullish": "#22c55e", "bearish": "#ef4444", "neutral": "#fbbf24"}
+EVENT_ICONS = {
+    "earnings": "📊", "guidance": "🎯", "M&A": "🤝", "merger": "🤝",
+    "acquisition": "🤝", "regulation": "⚖️", "litigation": "🏛️",
+    "executive_change": "👤", "product_launch": "🚀", "analyst_rating": "⭐",
+    "partnership": "🔗", "macro": "🌐", "market_trend": "📈", "other": "📌",
+}
 # =================================
 # ---Custom CSS--------------------
 # =================================
@@ -79,10 +88,10 @@ def show():
 
         # 3. Render Ticker Grid (4 Columns)
         tickers = list(st.session_state.watchlist.keys())
-        rows = [tickers[i:i + 4] for i in range(0, len(tickers), 4)]
-
+        #rows = [tickers[i:i + 4] for i in range(0, len(tickers), 4)]
+        rows = [tickers[i:i + 2] for i in range(0, len(tickers), 2)]
         for row in rows:
-            cols = st.columns(5)
+            cols = st.columns(2)
             for i, ticker in enumerate(row):
                 info = st.session_state.watchlist[ticker]
                 is_active = info.get("active", False)
@@ -159,9 +168,19 @@ def show():
 
         import agents.watchlist_agent as wa
         import agents.retrieval_agent as ra
+        import agents.filter_agent as fa
+        import agents.clustering_agent as ca
+        import agents.summarization_agent as sa
+        import agents.ranking_agent as rna
+        import agents.notification_agent as na
         _originals = {
             "watchlist": wa.watchlist_agent,
             "retrieval": ra.retrieval_agent,
+            "filter": fa.filter_agent,
+            "cluster": ca.clustering_agent,
+            "summarization": sa.summarization_agent,
+            "ranking": rna.ranking_agent,
+            "notification": na.notification_agent
         }
 
         def make_wrapper(fn, step_idx):
@@ -210,8 +229,11 @@ def show():
         
         wa.watchlist_agent     = make_wrapper(_originals["watchlist"],     1)
         ra.retrieval_agent     = make_wrapper(_originals["retrieval"],     2)
-
-
+        fa.filter_agent        = make_wrapper(_originals["filter"],        3)
+        ca.clustering_agent    = make_wrapper(_originals["cluster"],       4)
+        sa.summarization_agent = make_wrapper(_originals["summarization"], 5)
+        rna.ranking_agent = make_wrapper(_originals["ranking"], 6)
+        na.notification_agent = make_wrapper(_originals["notification"], 7)
         try:
             status_text.info("🔄 Starting pipeline execution...")
 
@@ -239,125 +261,201 @@ def show():
                 # Always restore originals
                 wa.watchlist_agent = _originals["watchlist"]
                 ra.retrieval_agent = _originals["retrieval"]
+                fa.filter_agent = _originals["filter"]
+                ca.clustering_agent    = _originals["cluster"]
+                sa.summarization_agent = _originals["summarization"]
+                rna.ranking_agent = _originals["ranking"]
+                na.notification_agent = _originals["notification"]
         if st.session_state.pipeline_result:
             time.sleep(0.5)
             st.rerun()
 
     elif st.session_state.pipeline_result:
         result = st.session_state.pipeline_result 
+        digest = result.get("digest", {})
+        high   = digest.get("high",   [])
+        medium = digest.get("medium", [])
+        low    = digest.get("low",    [])
+        all_events = high + medium + low
 
-
-
-
-
-
-
-# import streamlit as st
-# from utils.database import (
-#     get_user_watchlist, update_ticker_status
-# )
-
-# def show():
-#     st.title("📰 Financial News Digest")
-#     st.markdown("Generate AI-powered news digests for your stock watchlist")
+        c1, c2, c3, c4, c5 = st.columns(5)
+        c1.metric("📥 Articles Fetched",  result.get("raw_article_count", 0))
+        c2.metric("🧹 After Filtering",   result.get("clean_article_count", 0))
+        c3.metric("🗂 Total Events",       len(all_events))
+        c4.metric("🔴 High Priority",      len(high))
+        c5.metric("🟠 Medium Priority",    len(medium))
     
-#     with st.container(border=True):
-#         st.subheader("Generate New Digest")
-
-#         watchlist = get_user_watchlist(0)
+        generated = digest.get("generated_at", "")
+        if generated:
+            try:
+                dt = datetime.fromisoformat(generated.replace("Z", "+00:00"))
+                st.caption(f"Generated: {dt.strftime('%B %d, %Y  %H:%M UTC')}")
+            except Exception:
+                pass
     
-#         if watchlist:
-#             for ticker, info in watchlist.items():
-#                 st.session_state.watchlist[ticker] = {"active" : True if info.get('active') else False}
+        st.divider()
+         # ── Filter tabs ──────────────────────────────────────────────────
+        tab_all, tab_high, tab_med, tab_low, tab_digest, tab_logs = st.tabs([
+            f"All  ({len(all_events)})",
+            f"🔴 High  ({len(high)})",
+            f"🟠 Medium  ({len(medium)})",
+            f"🟢 Low  ({len(low)})",
+            "📧 HTML Digest",
+            "📋 Pipeline Logs",
+        ])
 
-#         ticker_list = list(st.session_state.watchlist.keys())
-            
-#         rows = [ticker_list[i:i + 4] for i in range(0, len(ticker_list), 4)]
+        def render_event_card(e: dict):
+            """Render a single event as a styled Streamlit expander."""
+            label = e.get("importance_label", "Low")
+            sent  = e.get("sentiment", "neutral")
+            etype = e.get("event_type", "other")
+            icon  = EVENT_ICONS.get(etype, "📌")
+            pcolor = PRIORITY_COLORS.get(label, "#22c55e")
+            pbg    = PRIORITY_BG.get(label, "#0a2014")
+            scolor = SENTIMENT_COLOR.get(sent, "#fbbf24")
+            semoji = SENTIMENT_EMOJI.get(sent, "◆")
+            tickers_str = "  ".join(f"`{t}`" for t in e.get("tickers_affected", []))
+            score = e.get("importance_score", 0)
+    
+            header = (
+                f"{icon} **{e.get('event_title', '')}** &nbsp;&nbsp;"
+                f"<span style='color:{pcolor};font-size:12px;font-weight:700;background:{pbg};"
+                f"padding:2px 8px;border-radius:3px;border:1px solid {pcolor}33'>{label}</span>"
+                f"&nbsp;<span style='color:{scolor};font-size:12px'>{semoji} {sent}</span>"
+            )
+            with st.expander(f"{icon}  {e.get('event_title', '')}  ·  {label}  ·  {sent.capitalize()}", expanded=False):
+                # Meta row
+                col_meta, col_score = st.columns([4, 1])
+                with col_meta:
+                    st.markdown(
+                        f"**Tickers:** {tickers_str} &nbsp;·&nbsp; "
+                        f"**Type:** `{etype.replace('_',' ').title()}` &nbsp;·&nbsp; "
+                        f"**Sources:** {e.get('article_count', 0)}"
+                    )
+                with col_score:
+                    st.markdown(
+                        f"<div style='text-align:right;font-family:JetBrains Mono;font-size:22px;"
+                        f"font-weight:700;color:{pcolor}'>{score}<span style='font-size:12px;color:#4a5a6a'>/10</span></div>",
+                        unsafe_allow_html=True,
+                    )
+    
+                st.divider()
+    
+                # TLDR
+                st.markdown(f"**TLDR:** {e.get('tldr', '')}")
+    
+                # Bullets
+                bullets = e.get("key_bullets", [])
+                if bullets:
+                    st.markdown("**Key Facts:**")
+                    for b in bullets:
+                        st.markdown(f"- {b}")
+    
+                # Investment impact
+                impact = e.get("investment_impact", "")
+                if impact:
+                    st.markdown(
+                        f"""<div style='background:#0a1f10;border:1px solid #1a4a2a;border-radius:6px;
+                        padding:12px 16px;margin:12px 0'>
+                        <div style='font-size:10px;color:#22c55e;font-family:JetBrains Mono;
+                        text-transform:uppercase;letter-spacing:1.5px;font-weight:700;margin-bottom:6px'>
+                        💼 Investment Perspective</div>
+                        <div style='font-size:14px;color:#9dd4b8;line-height:1.6'>{impact}</div>
+                        </div>""",
+                        unsafe_allow_html=True,
+                    )
+    
+                # Ranking rationale
+                rationale = e.get("importance_rationale", "")
+                if rationale:
+                    st.caption(f"📊 Ranked: {rationale}")
+    
+                # Uncertainty flags
+                flags = [f for f in e.get("uncertainty_flags", []) if f]
+                if flags:
+                    st.warning("⚠️ " + " · ".join(flags))
+    
+                # Confidence & sources
+                col_conf, col_src = st.columns([1, 3])
+                with col_conf:
+                    conf = e.get("confidence", "low")
+                    conf_color = {"high": "#22c55e", "medium": "#fbbf24", "low": "#ef4444"}.get(conf, "#4a5a6a")
+                    st.markdown(
+                        f"<span style='font-family:JetBrains Mono;font-size:11px;color:{conf_color};"
+                        f"background:{conf_color}1a;padding:3px 8px;border-radius:3px;"
+                        f"border:1px solid {conf_color}44'>Confidence: {conf}</span>",
+                        unsafe_allow_html=True,
+                    )
+                with col_src:
+                    urls = [u for u in e.get("source_urls", []) if u]
+                    if urls:
+                        links = "  ".join(f"[Source {i+1}]({u})" for i, u in enumerate(urls[:3]))
+                        st.markdown(links)
+
+        def render_event_list(events):
+            if not events:
+                st.markdown(
+                    "<div style='text-align:center;padding:40px;color:#4a5a6a'>No events in this category.</div>",
+                    unsafe_allow_html=True,
+                )
+                return
+            for e in events:
+                render_event_card(e)
         
-#         style_blocks = ""
-#         for ticker, info in st.session_state.watchlist.items():
-#             is_active = info.get("active", False) if isinstance(info, dict) else info
-#             current_bg = "#00d4ff" if is_active else "#FF4B4B"
-#             hover_bg = "#00b8e6" if is_active else "#FF2B2B"
+        with tab_all:
+            render_event_list(all_events)
+    
+        with tab_high:
+            render_event_list(high)
+    
+        with tab_med:
+            render_event_list(medium)
+    
+        with tab_low:
+            render_event_list(low)
+    
+        with tab_digest:
+            html_content = digest.get("html", "")
+            if html_content:
+                # Save and offer download
+                st.download_button(
+                    label="⬇️  Download HTML Digest",
+                    data=html_content,
+                    file_name=f"fintel_digest_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.html",
+                    mime="text/html",
+                    use_container_width=True,
+                )
+                st.markdown("**Preview:**")
+                st.components.v1.html(html_content, height=700, scrolling=True)
+            else:
+                st.info("No HTML digest available.")
+    
+        with tab_logs:
+            st.markdown("**Pipeline execution logs:**")
+            logs = st.session_state.step_logs
+            if logs:
+                log_text = "\n".join(logs)
+                st.code(log_text, language="text")
+                st.download_button(
+                    "⬇️  Download Logs",
+                    data=log_text,
+                    file_name="fintel_logs.txt",
+                    mime="text/plain",
+                )
+            else:
+                st.info("No logs captured.")
+    
+            st.markdown("**Raw result JSON:**")
+            safe_result = {
+                k: v for k, v in result.items()
+                if k not in ("openai_key", "newsapi_key", "digest")
+            }
+            safe_result["digest_summary"] = {
+                "generated_at": digest.get("generated_at", ""),
+                "high_count":   len(high),
+                "medium_count": len(medium),
+                "low_count":    len(low),
+            }
+            st.json(safe_result, expanded=False)
 
-#             safe_ticker = ticker.replace(".", "\\.").replace("-", "\\-")
-#             # We target the button specifically by its key
-#             style_blocks += f"""
-#                 div[data-testid="stElementContainer"]:has(div.stButton > button) {{
-#                     /* This ensures the container doesn't restrict the button size */
-#                     width: 250px !important;
-#                 }}
 
-#                 .st-key-{safe_ticker} button {{
-#                     background-color: {current_bg} !important;
-#                     color: white !important;
-#                     border-radius: 20px !important;
-#                     padding: 10px 25px !important;
-#                     font-weight: bold !important;
-#                     font-size: 25px !important;
-#                     border: 1px solid {current_bg} !important;
-#                     width: 260px !important;
-#                     min-height: 60px !important;
-#                     transition: all 0.3s ease !important;
-#                     box-shadow: 0 0 10px {current_bg}66 !important;
-#                 }}
-            
-#                 .st-key-{safe_ticker} [data-testid="stMarkdownContainer"] p {{
-#                     font-size: 23px !important; /* Change this to your desired size */
-#                     font-weight: 800 !important;
-#                     color: white !important;
-#                     line-height: 1 !important;
-#                     margin: 0 !important;
-#                 }}
-#                 .st-key-{safe_ticker} button:hover {{
-#                     background-color: {hover_bg} !important;
-#                     box-shadow: 0 0 20px {current_bg}aa !important;
-#                     border-color: white !important;
-#                 }}
-#             """
-        
-#         # Inject the final combined style block
-#         st.markdown(f"<style>{style_blocks}</style>", unsafe_allow_html=True)
-
-
-
-#         for row_tickers in rows:
-#             # Create up to 4 columns for this specific row
-#             cols = st.columns(4)
-
-#             for i, ticker in enumerate(row_tickers):
-#                 info = st.session_state.watchlist[ticker]
-#                 is_active = info.get("active", False) if isinstance(info, dict) else info
-#                 label = f"{'ACTIVE' if is_active else 'INACTIVE'}: {ticker}"
-#                 icon = ":material/check_circle:" if is_active else ":material/cancel:"
-                    
-#                 with cols[i]:
-#                     # The 'key' here MUST match the one in the CSS selector above
-#                     if st.button(f"{label} {icon}", key=ticker):
-#                         if isinstance(st.session_state.watchlist[ticker], dict):
-#                             new_status = not is_active
-#                             st.session_state.watchlist[ticker]["active"] = new_status
-#                             update_ticker_status(user_id=0, ticker=ticker, status=new_status)
-#                         else:
-#                             st.session_state.watchlist[ticker] = not is_active
-                      
-#                         st.rerun()
-
-#         # 4. Agent Status
-#         active_list = [t for t, info in st.session_state.watchlist.items() 
-#                     if (info.get("active", False) if isinstance(info, dict) else info)]
-        
-#         if active_list:
-#             st.info(f"Agents are currently analyzing: **{', '.join(active_list)}**")
-#         else:
-#             st.warning(
-#             "⚠️ Your watchlist is empty. "
-#            #"[Add tickers in the Watchlist section](/?streamlit_pages=watchlist) to generate digests."
-#         )
-
-#         generate_button = st.button(
-#                 "⚡ Generate Digest",
-#                 use_container_width=True,
-#                 type="primary"
-#             )
-#         # st.write(st.session_state.watchlist)

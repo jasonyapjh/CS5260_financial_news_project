@@ -28,8 +28,8 @@ def watchlist_agent(state: PipelineState) -> PipelineState:
     try:
         with open("agent_1_output.json", "r") as f:
             bundles = json.load(f)
-        #response = call_openai(prompt, state["openai_key"])
-        #bundles = extract_json(response)
+        # response = call_openai(prompt, state["openai_key"])
+        # bundles = extract_json(response)
 
         # output_path = "agent_1_output.json"
         # with open(output_path, "w") as f:
