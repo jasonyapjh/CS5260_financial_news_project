@@ -6,7 +6,6 @@ import json
 import re
 from openai import OpenAI
 
-import os
 
 def get_client(api_key: str) -> OpenAI:
     return OpenAI(api_key=api_key)
@@ -21,8 +20,7 @@ def call_openai(
     max_tokens: int = 4096,
 ) -> str:
     """Call OpenAI and return raw text response."""
-    #client = get_client(api_key)
-    client = OpenAI()
+    client = get_client(api_key)
     response = client.chat.completions.create(
         model=model,
         temperature=temperature,
