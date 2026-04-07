@@ -1,5 +1,5 @@
 from langgraph.graph import StateGraph, END
-from utils.state import PipelineState
+from core.state import PipelineState
 from .watchlist_agent import watchlist_agent
 from .retrieval_agent import retrieval_agent
 from .filter_agent import filter_agent
@@ -10,12 +10,12 @@ from .notification_agent import notification_agent
 
 def should_continue(state: PipelineState) -> str:
     """Route: abort on error, else continue."""
-    return "abort" if state.get("error") else "continue"
+    return "abort" if state.errors else "continue"
 
 
 def abort_node(state: PipelineState) -> PipelineState:
-    state["step_logs"].append(f"[Pipeline] ✗ Aborted: {state.get('error')}")
-    state["digest"] = {"high": [], "medium": [], "low": [], "generated_at": "", "html": "", "text": ""}
+    state.step_logs.append(f"[Pipeline] ✗ Aborted: {state.errors}")
+    state.ranked_digest = {"high": [], "medium": [], "low": [], "generated_at": "", "html": "", "text": ""}
     return state
 
 def build_graph() -> StateGraph:
@@ -57,22 +57,6 @@ def run_pipeline(
     """Run the full LangGraph pipeline and return the final state."""
     graph = build_graph()
 
-    initial_state: PipelineState = {
-        "watchlist": watchlist,
-        "openai_key": openai_key,
-        "query_bundles": [],
-        "raw_articles": [],
-        "raw_article_count": 0,
-        "clean_articles": [],
-        "clean_article_count": 0,
-        "event_clusters": [],
-        "event_cards": [],
-        "ranked_events": [],
-        "digest": {},
-        "current_step": 0,
-        "step_logs": [],
-        "error": None,
-    }
-
+    initial_state =  PipelineState()
     final_state = graph.invoke(initial_state)
     return final_state

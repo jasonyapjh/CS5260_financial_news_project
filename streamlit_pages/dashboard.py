@@ -1,7 +1,10 @@
+import os
+
 import streamlit as st
+from agents.watchlist_agent import WatchlistContextAgent
+from utils.config_loader import load_config
 from utils.database import get_user_watchlist, update_ticker_status
 
-from utils.llm import call_openai_test
 import json
 import time
 import datetime as datetime
@@ -38,7 +41,7 @@ def inject_custom_css(watchlist_data):
         is_active = info.get("active", False)
         current_bg = "#00d4ff" if is_active else "#FF4B4B"
         hover_bg = "#00b8e6" if is_active else "#FF2B2B"
-        safe_ticker = ticker.replace(".", "\\.").replace("-", "\\-")
+        safe_ticker = ticker#.replace(".", "\\.").replace("-", "\\-")
 
         style_blocks += f"""
             .st-key-{safe_ticker} button {{
@@ -67,7 +70,44 @@ def inject_custom_css(watchlist_data):
             }}
         """
     st.markdown(f"<style>{style_blocks}</style>", unsafe_allow_html=True)
+def inject_custom_css2(watchlist_data):
+    style_blocks = """
+    <style>
+        /* 1. Make 'Active/Inactive' and 'Ticker' text bigger */
+        .ticker-text {
+            font-size: 24px !important;
+            font-weight: 700 !important;
+            margin: 0 !important;
+            line-height: 1.5 !important;
+        }
+        
+        /* 2. Vertical Alignment Fix */
+        /* This pushes the text down slightly to match the button centers */
+        [data-testid="stVerticalBlock"] .stMarkdown {
+            padding-top: 1px;
+            padding-bottom: 0px;
+        }
 
+        /* 3. Targets all buttons inside the watchlist rows specifically */
+        div[data-testid="column"] button {
+            min-height: 40px !important;  /* Smaller height */
+            width: 140px !important;      /* Smaller fixed width */
+            font-size: 16px !important;   /* Slightly smaller font for the action */
+            margin-top: 0px !important;
+        }
+
+        /* 4. Style for the top header row labels */
+        .header-label {
+            font-size: 28px !important;  /* Bigger font for headers */
+            font-weight: 800 !important;
+            color: #4a5a6a !important;   /* Professional slate gray */
+            margin-bottom: 0px !important;
+            display: block;
+            margin-top: 0px !important;
+        }
+    </style>
+    """
+    st.markdown(style_blocks, unsafe_allow_html=True)
 def show():
     st.title("📰 Financial News Digest")
     st.caption("Generate AI-powered news digests for your stock watchlist")
@@ -76,52 +116,59 @@ def show():
     st.session_state.watchlist = get_user_watchlist(0)
     
     # 2. Layout Container
+    # 2. Layout Container
     with st.container(border=True):
-        st.subheader("Generate New Digest")
+        # st.subheader("My Watchlist")
         
         if not st.session_state.watchlist:
             st.warning("⚠️ Your watchlist is empty. Add tickers to get started.")
             return
 
-        # Inject styles based on current state
-        inject_custom_css(st.session_state.watchlist)
+        # Inject styles (kept your original logic for button colors)
+        inject_custom_css2(st.session_state.watchlist)
 
-        # 3. Render Ticker Grid (4 Columns)
-        tickers = list(st.session_state.watchlist.keys())
-        #rows = [tickers[i:i + 4] for i in range(0, len(tickers), 4)]
-        rows = [tickers[i:i + 2] for i in range(0, len(tickers), 2)]
-        for row in rows:
-            cols = st.columns(2)
-            for i, ticker in enumerate(row):
-                info = st.session_state.watchlist[ticker]
+        # --- NEW LIST HEADER ---
+        h1, h2, h3 = st.columns([1.5, 2, 1])
+        h1.markdown('<span class="header-label">Ticker</span>', unsafe_allow_html=True)
+        h2.markdown('<span class="header-label">Status</span>', unsafe_allow_html=True)
+        h3.markdown('<span class="header-label">Action</span>', unsafe_allow_html=True)
+        st.divider()
+
+        # 3. Render Ticker List
+        with st.container(height=400, border=False):
+            for ticker, info in st.session_state.watchlist.items():
                 is_active = info.get("active", False)
                 
-                label = f"{'ACTIVE' if is_active else 'INACTIVE'}: {ticker}"
-                icon = "check_circle" if is_active else "cancel"
+                col_name, col_status, col_action = st.columns([1.5, 2, 1])
                 
-                with cols[i]:
-                    if st.button(f"{label} :material/{icon}:", key=ticker):
-                        # Toggle State
+                with col_name:
+                    st.markdown(f'<p class="ticker-text">{ticker}</p>', unsafe_allow_html=True)
+                
+                with col_status:
+                    status_html = '🟢 Active' if is_active else '🔴 Inactive'
+                    status_color = '#22c55e' if is_active else '#ff4b4b'
+                    st.markdown(f'<p class="ticker-text" style="color:{status_color};">{status_html}</p>', unsafe_allow_html=True)
+                
+                with col_action:
+                    btn_label = "Deactivate" if is_active else "Activate"
+                    if st.button(btn_label, key=f"btn_{ticker}", use_container_width=True):
                         new_status = not is_active
-                        st.session_state.watchlist[ticker]["active"] = new_status
                         update_ticker_status(0, ticker, new_status)
                         st.rerun()
-
         st.divider()
 
         # 4. Action Section
         active_tickers = [t for t, info in st.session_state.watchlist.items() if info.get("active")]
-        st.success(f"Selected: **{', '.join(active_tickers)}**")
-        # Run button
-        run_disabled = (
-            st.session_state.running
-            # or not openai_key
-            # or not newsapi_key
-            or not active_tickers
-        )
+        
+        if active_tickers:
+            st.success(f"Selected for Analysis: **{', '.join(active_tickers)}**")
+        else:
+            st.info("💡 Select at least one ticker above to run the pipeline.")
+
+        run_disabled = st.session_state.get("running", False) or not active_tickers
 
         if st.button(
-            "⚡  Run Pipeline" if not st.session_state.running else "⏳  Running...",
+            "⚡ Run Pipeline" if not st.session_state.get("running", False) else "⏳ Running...",
             use_container_width=True,
             disabled=run_disabled,
             type="primary",
@@ -165,7 +212,8 @@ def show():
         log_box = st.empty()
 
 
-
+        #from agents.watchlist_agent import WatchlistContextAgent
+        
         import agents.watchlist_agent as wa
         import agents.retrieval_agent as ra
         import agents.filter_agent as fa
@@ -173,6 +221,10 @@ def show():
         import agents.summarization_agent as sa
         import agents.ranking_agent as rna
         import agents.notification_agent as na
+
+        config = load_config('config/config.yaml')
+        watchlist_agent = WatchlistContextAgent({**config, "openai_key": os.getenv("OPENAI_API_KEY")})
+        
         _originals = {
             "watchlist": wa.watchlist_agent,
             "retrieval": ra.retrieval_agent,
@@ -214,7 +266,7 @@ def show():
                 name_slot.markdown(f"<span style='color:#22c55e;font-weight:700'>{STEP_NAMES[step_idx-1]}</span>", unsafe_allow_html=True)
 
                 # Show latest log line
-                logs = result.get("step_logs", [])
+                logs = result.step_logs
                 if logs:
                     last = logs[-1]
                     log_slot.markdown(
@@ -234,6 +286,7 @@ def show():
         sa.summarization_agent = make_wrapper(_originals["summarization"], 5)
         rna.ranking_agent = make_wrapper(_originals["ranking"], 6)
         na.notification_agent = make_wrapper(_originals["notification"], 7)
+        
         try:
             status_text.info("🔄 Starting pipeline execution...")
 
@@ -241,8 +294,8 @@ def show():
             result = run_pipeline(watchlist=active_tickers, openai_key='')
 
             
-            if result.get("error"):
-                st.error(f"Pipeline error: {result['error']}")
+            if result.errors:
+                st.error(f"Pipeline error: {result.errors}")
                 st.session_state.running = False
             else:
                 time.sleep(2)
@@ -272,15 +325,15 @@ def show():
 
     elif st.session_state.pipeline_result:
         result = st.session_state.pipeline_result 
-        digest = result.get("digest", {})
+        digest = result.ranked_digest
         high   = digest.get("high",   [])
         medium = digest.get("medium", [])
         low    = digest.get("low",    [])
         all_events = high + medium + low
 
         c1, c2, c3, c4, c5 = st.columns(5)
-        c1.metric("📥 Articles Fetched",  result.get("raw_article_count", 0))
-        c2.metric("🧹 After Filtering",   result.get("clean_article_count", 0))
+        c1.metric("📥 Articles Fetched",  result.raw_article_count)
+        c2.metric("🧹 After Filtering",   result.clean_article_count)
         c3.metric("🗂 Total Events",       len(all_events))
         c4.metric("🔴 High Priority",      len(high))
         c5.metric("🟠 Medium Priority",    len(medium))

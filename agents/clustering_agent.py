@@ -1,60 +1,160 @@
-"""Agent 4: Event Clustering — groups articles into distinct financial events."""
+"""
+agents/clustering_agent.py
+--------------------------
+Agent 4 — EventClusteringAgent
+
+Groups clean articles into typed event clusters, one group per ticker.
+Steps:
+  1. Group articles by ticker
+  2. Keyword-rule event type classification
+  3. GPT-4o clustering within each ticker group
+  4. Select representative article (highest-credibility source)
+"""
+
+from __future__ import annotations
+
+from core.base_agent import BaseAgent
 from utils.llm import call_openai, extract_json
-from utils.state import PipelineState
-import json
-PROMPT = """You are a financial analyst. Group these news articles into distinct event clusters.
-Each cluster = one underlying business/financial event.
+from core.state import PipelineState
+import os
+from dotenv import load_dotenv
+load_dotenv()  # Load environment variables from .env file
 
-Event types: earnings, guidance, M&A, product_launch, regulation, litigation,
-executive_change, partnership, analyst_rating, macro, market_trend, other
+EVENT_TYPE_RULES: list[tuple[str, list[str]]] = [
+    ("earnings_release",  ["earnings", "profit", "revenue", "net income", "eps", "quarterly results", "full-year"]),
+    ("dividend",          ["dividend", "distribution", "payout", "dpu"]),
+    ("guidance_update",   ["guidance", "outlook", "forecast", "profit warning", "upgrade", "downgrade"]),
+    ("ma_announcement",   ["acqui", "merger", "takeover", "buyout", " deal", "bid", "offer", "divest"]),
+    ("regulatory_action", ["mas ", "regulation", "compliance", "enforcement", "licence", "fine", "penalty"]),
+    ("capital_action",    ["rights issue", "placement", "buyback", "bond issue", "capital raise"]),
+    ("leadership_change", ["ceo", "chairman", "board", "appoint", "resign", "retire", "chief executive"]),
+    ("litigation",        ["lawsuit", "court", "arbitration", "investigation", "probe", "charges"]),
+    ("product_launch",    ["launch", "new product", "partnership", "contract win", "awarded", "signed"]),
+    ("analyst_rating",    ["analyst", "target price", "overweight", "underweight", "buy rating", "sell rating", "hold rating", "initiates"]),
+    ("general_news",      []),
+]
 
-Return ONLY a JSON array:
-[{{
-  "cluster_id": "c1",
-  "event_type": "earnings",
-  "event_title": "Descriptive title of the event",
-  "tickers_affected": ["AAPL"],
-  "article_indices": [0, 3, 7]
-}}]
+CLUSTER_PROMPT = """You are a financial analyst. The articles below all relate to ticker {ticker}.
+Group them into distinct event clusters — each cluster represents exactly ONE real-world event.
+
+Return ONLY a JSON array. Each item:
+{{
+  "cluster_indices": [0, 2, 5],
+  "event_type": "earnings_release"
+}}
+
+Valid event_type values:
+earnings_release, dividend, guidance_update, ma_announcement, regulatory_action,
+capital_action, leadership_change, litigation, product_launch, analyst_rating, general_news
 
 Articles:
 {articles_text}"""
 
 
-def clustering_agent(state: PipelineState) -> PipelineState:
-    state["current_step"] = 4
-    state["step_logs"].append("[Agent 4] Clustering articles into events...")
+class EventClusteringAgent(BaseAgent):
+    """
+    Agent 4: Keyword + GPT-4o event clustering per ticker.
+    """
 
-    articles = state.get("clean_articles", [])
-    if not articles:
-        state["event_clusters"] = []
-        state["step_logs"].append("[Agent 4] ✓ No articles to cluster")
+    def __init__(self, config: dict):
+        super().__init__(config)
+        self.openai_key = os.getenv("OPENAI_API_KEY")
+
+    def run(self, state: PipelineState) -> PipelineState:
+        articles = state.cleaned_articles
+        self.log_start(f"{len(articles)} clean articles")
+        state.current_step = 4
+        state.step_logs.append("[Agent 4] Clustering articles by ticker then by event...")
+
+        if not articles:
+            state.event_clusters = []
+            state.step_logs.append("[Agent 4] ✓ No articles to cluster")
+            self.log_done("No articles")
+            return state
+
+        by_ticker: dict[str, list[dict]] = {}
+        for art in articles:
+            by_ticker.setdefault(art.get("ticker", "UNKNOWN"), []).append(art)
+
+        all_clusters: list[dict] = []
+        offset = 0
+        for ticker, ticker_articles in by_ticker.items():
+            clusters = self._cluster_ticker(ticker, ticker_articles, offset)
+            all_clusters.extend(clusters)
+            offset += len(clusters)
+
+        state.event_clusters = all_clusters
+        msg = (
+            f"[Agent 4] ✓ Formed {len(all_clusters)} event clusters "
+            f"across {len(by_ticker)} tickers"
+        )
+        state.step_logs.append(msg)
+        self.log_done(msg)
         return state
 
-    text = "\n".join(
-        f"[{i}] [{a.get('ticker','')}] {a['headline']} | {a.get('snippet','')[:120]}"
-        for i, a in enumerate(articles)
-    )
+    # ── helpers ───────────────────────────────────────────────────────────────
+    def _cluster_ticker(
+        self,
+        ticker: str,
+        articles: list[dict],
+        offset: int,
+    ) -> list[dict]:
+        if not articles:
+            return []
 
-    try:
-        resp = call_openai(PROMPT.format(articles_text=text), state["openai_key"])
-        raw = extract_json(resp)
-    except Exception as e:
-        raw = [{"cluster_id": f"c{i}", "event_type": "other", "event_title": a["headline"],
-                "tickers_affected": [a.get("ticker","")], "article_indices": [i]}
-               for i, a in enumerate(articles)]
+        art_text = "\n".join(
+            f"[{i}] {a['headline']} | {a.get('snippet','')[:120]}"
+            for i, a in enumerate(articles)
+        )
+        try:
+            resp = call_openai(
+                CLUSTER_PROMPT.format(ticker=ticker, articles_text=art_text),
+                self.openai_key,
+            )
+            raw_clusters = extract_json(resp)
+        except Exception as e:
+            self.logger.warning(f"GPT-4o clustering failed for {ticker}: {e} — one per article")
+            raw_clusters = [
+                {"cluster_indices": [i], "event_type": self._classify(a["headline"], a.get("snippet",""))}
+                for i, a in enumerate(articles)
+            ]
 
-    clusters = []
-    for c in raw:
-        linked = [articles[i] for i in c.get("article_indices", []) if 0 <= i < len(articles)]
-        clusters.append({**c, "articles": linked})
+        clusters: list[dict] = []
+        for n, rc in enumerate(raw_clusters):
+            indices = [idx for idx in rc.get("cluster_indices", []) if 0 <= idx < len(articles)]
+            if not indices:
+                continue
+            cluster_arts = [articles[idx] for idx in indices]
+            rep_headline, rep_source = self._representative(cluster_arts)
+            gpt_et = rc.get("event_type", "general_news")
+            kw_et  = self._classify(rep_headline, cluster_arts[0].get("snippet",""))
+            clusters.append({
+                "cluster_id":              f"{ticker}_c{offset + n:03d}",
+                "ticker":                  ticker,
+                "event_type":              gpt_et if gpt_et != "general_news" else kw_et,
+                "articles":                cluster_arts,
+                "representative_headline": rep_headline,
+                "representative_source":   rep_source,
+                "article_count":           len(cluster_arts),
+                "sources":                 list({a["source"] for a in cluster_arts}),
+            })
+        return clusters
 
-    output_path = "agent_4_output.json"
-    with open(output_path, "w") as f:
-        json.dump(clusters, f, indent=4)
+    @staticmethod
+    def _classify(headline: str, snippet: str) -> str:
+        text = (headline + " " + snippet).lower()
+        for event_type, keywords in EVENT_TYPE_RULES:
+            if any(kw in text for kw in keywords):
+                return event_type
+        return "general_news"
 
-    # with open("agent_4_output.json", "r") as f:
-    #     clusters = json.load(f)
-    state["event_clusters"] = clusters
-    state["step_logs"].append(f"[Agent 4] ✓ Formed {len(clusters)} event clusters")
-    return state
+    @staticmethod
+    def _representative(articles: list[dict]) -> tuple[str, str]:
+        best = max(articles, key=lambda a: a.get("credibility", 0.0))
+        return best.get("headline", ""), best.get("source", "Unknown")
+
+
+# ── LangGraph node wrapper ─────────────────────────────────────────────────────
+def clustering_agent(state: PipelineState) -> PipelineState:
+    agent = EventClusteringAgent({"openai_key": os.getenv("OPENAI_API_KEY")})
+    return agent.run(state)

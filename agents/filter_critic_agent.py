@@ -84,9 +84,9 @@ class FilterCriticAgent(BaseAgent):
             f"Evaluating {n} filtered articles "
             f"(attempt {retry_count + 1}/{self.max_retries + 1})"
         )
-        state.current_step = 4
+        state.current_step = 3
         state.step_logs.append(
-            f"[Critic A] Evaluating filter quality — {n} articles "
+            f"[Filter Critic] Evaluating filter quality — {n} articles "
             f"(attempt {retry_count + 1}/{self.max_retries + 1})..."
         )
 
@@ -103,7 +103,7 @@ class FilterCriticAgent(BaseAgent):
             }
             state.filter_critique = report
             state.step_logs.append(
-                f"[Critic A] {'FORCE-PASS (max retries)' if force else 'RETRY — zero articles'}"
+                f"[Filter Critic] {'FORCE-PASS (max retries)' if force else 'RETRY — zero articles'}"
             )
             self.log_done("RETRY — zero articles" if not force else "FORCE-PASS")
             return state
@@ -191,10 +191,10 @@ class FilterCriticAgent(BaseAgent):
             else f"PASS (score {score:.3f} ≥ {self.pass_threshold})" if passed
             else f"RETRY (score {score:.3f} < {self.pass_threshold}) — {len(all_issues)} issue(s)"
         )
-        state.step_logs.append(f"[Critic A] {verdict_msg}")
+        state.step_logs.append(f"[Filter Critic] {verdict_msg}")
         if all_issues and not passed:
             for issue in all_issues[:3]:
-                state.step_logs.append(f"[Critic A]   ✗ {issue}")
+                state.step_logs.append(f"[Filter Critic]   ✗ {issue}")
 
         self.log_done(verdict_msg)
         return state

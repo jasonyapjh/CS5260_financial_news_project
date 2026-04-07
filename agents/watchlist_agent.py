@@ -70,7 +70,7 @@ class WatchlistContextAgent(BaseAgent):
             self.log_done(f"{len(bundles)} bundles produced")
         except Exception as e:
             self.logger.error(f"Failed: {e}")
-            state.error         = f"Agent 1 failed: {e}"
+            state.errors.append(f"Agent 1 failed: {e}")
             state.query_bundles = []
 
         return state

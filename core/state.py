@@ -13,6 +13,7 @@ class PipelineState:
     query_bundles:    list[dict] = field(default_factory=list)
     raw_articles:     list[dict] = field(default_factory=list)
     raw_article_count: int = 0
+    market_context:   list[dict] = field(default_factory=list)
     # Filter Agent and Filter Critic
     cleaned_articles: list[dict] = field(default_factory=list)
     clean_article_count: int = 0
@@ -23,11 +24,17 @@ class PipelineState:
 
     event_clusters:   list[dict] = field(default_factory=list)
     event_cards:      list[dict] = field(default_factory=list)
+    
+    #Ranking Agent
     ranked_digest:    list[dict] = field(default_factory=list)
+    ranking_retry_count: int = 0
+    ranking_critique: str = ""
+    ranking_critic_max_retries: int = 2
+    
     email_output:     dict       = field(default_factory=dict)
     errors:           list[str]  = field(default_factory=list)
     skipped_nodes:    list[str]  = field(default_factory=list)
-
+    
     # UI updates
     current_step:     int        = 0
     step_logs: list[str] = field(default_factory=list)
