@@ -1,0 +1,89 @@
+# config.yaml
+
+retrieval:
+  lookback_hours: 720          # 7 days — was 24, articles often come in delayed
+
+  sources:
+    sgx_announcements: true
+    newsapi: true
+    yahoo_finance: true
+    cna: true
+    straits_times: true
+    mas: true
+    sbr: true
+    reuters: true             # now uses WSJ + NYT Business (Reuters RSS is dead)
+    nikkei_asia: true
+    cnbc_asia: true           # now uses Google News Asia Pacific (CNBC RSS returns 403)
+    reddit: false             # off by default — noisy; enable for retail sentiment
+
+  max_articles_per_query: 20
+  fetch_full_content: true   # follow article URLs to extract full text (uses trafilatura)
+
+newsapi_key: "b534ae4e571a48d285f602636c3bc4e2"
+newsapi_page_size: 20
+sgx_request_delay: 1.5
+sgx_max_pages: 10
+retrieval_max_workers: 8
+
+filtering:
+  min_snippet_length: 20       # was 50 — many RSS feeds have short snippets
+  similarity_threshold: 0.85
+  llm_model: "gpt-4o"
+  llm_enabled: true
+
+  
+clustering:
+  method: "agglomerative"
+  min_cluster_size: 1          # was 2 — keeps single-source events
+  embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
+
+summarization:
+  llm_model: "gpt-4o"
+  max_tokens: 512
+  temperature: 0.2
+  verification_enabled: true
+
+ranking:
+  weights:
+    event_type:    0.40
+    corroboration: 0.25
+    novelty:       0.20
+    credibility:   0.15
+
+  source_credibility:
+    tier_1:
+      - "SGX Announcements"
+      - "MAS"
+    tier_2:
+      - "Business Times"
+      - "Straits Times"
+      - "Global Wire"
+      - "Bloomberg"
+    tier_3:
+      - "CNA"
+      - "Nikkei Asia"
+      - "Asia Pacific News"
+      - "NewsAPI"
+      - "Yahoo Finance"       # covers global tickers well
+    tier_4:
+      - "Singapore Business Review"
+
+notification:
+  min_importance: "Low"        # was Medium — show everything while debugging
+  max_events_per_digest: 20
+  send_immediate_alerts: true
+  email:
+    smtp_host: "smtp.gmail.com"
+    smtp_port: 587
+    sender: ""
+    recipients: []
+
+market_data:
+  enabled: true
+  volume_spike_threshold: 2.0   # flag tickers trading >2x their 20-day avg volume
+  earnings_window_days: 7       # treat articles as high-priority if within ±7 days of earnings
+
+market_data_max_workers: 6
+
+logging:
+  level: "INFO"
