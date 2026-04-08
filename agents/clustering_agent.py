@@ -59,12 +59,22 @@ class EventClusteringAgent(BaseAgent):
     def __init__(self, config: dict):
         super().__init__(config)
         self.openai_key = os.getenv("OPENAI_API_KEY")
+        self.simulation_mode = config.get("simulation_mode", True)
 
     def run(self, state: PipelineState) -> PipelineState:
         articles = state.cleaned_articles
         self.log_start(f"{len(articles)} clean articles")
         state.current_step = 4
         state.step_logs.append("[Agent 4] Clustering articles by ticker then by event...")
+
+        if self.simulation_mode:
+            with open("clustering_test_output.json", "r",  encoding='utf-8') as f:
+                data = extract_json(f.read())
+                state = PipelineState(**data)
+                msg = f"[Agent 4] ✓ Formed {len(state.event_clusters)} event clusters (simulated)"
+                state.step_logs.append(msg)
+                self.log_done(msg)
+                return state
 
         if not articles:
             state.event_clusters = []

@@ -3,12 +3,13 @@ import os
 import streamlit as st
 from agents.watchlist_agent import WatchlistContextAgent
 from utils.config_loader import load_config
-from utils.database import get_user_watchlist, update_ticker_status
+from utils.database import get_user_watchlist, update_ticker_status, save_digest
+from utils.session import reset_digest_state, add_to_history
 
 import json
 import time
 import datetime as datetime
-
+import traceback
 # =================================
 # ---Constant----------------------
 # =================================
@@ -114,7 +115,6 @@ def show():
 
     # 1. Sync & Initialize Watchlist State
     st.session_state.watchlist = get_user_watchlist(0)
-    
     # 2. Layout Container
     # 2. Layout Container
     with st.container(border=True):
@@ -274,7 +274,7 @@ def show():
                         unsafe_allow_html=True,
                     )
                     st.session_state.step_logs = logs
-                print(logs)
+                # print(logs)
                 overall_progress.progress(step_idx / 7, text=f"Agent {step_idx}/7 complete")
                 return result
             return wrapper
@@ -292,23 +292,28 @@ def show():
 
             from agents.pipeline import run_pipeline
             result = run_pipeline(watchlist=active_tickers, openai_key='')
-
             
-            if result.errors:
-                st.error(f"Pipeline error: {result.errors}")
+            # output_path = "final_output.json"
+            # with open(output_path, "w") as f:
+            #     json.dump(result, f, indent=4)
+            if result['errors']:
+                st.error(f"Pipeline error: {result['errors']}")
                 st.session_state.running = False
             else:
                 time.sleep(2)
                 overall_progress.progress(1.0, text="✓ Pipeline complete!")
                 st.session_state.pipeline_result = result
                 st.session_state.running = False
-
-                # output_path = "agent_1_output.json"
-                # with open(output_path, "w") as f:
-                #     json.dump( st.session_state.pipeline_result, f, indent=4)
+                digest_id = save_digest(0, result["ranked_digest"])
+                add_to_history(result["ranked_digest"])
 
         except Exception as e:
+            # print(result)
+            full_error = traceback.format_exc()
             status_text.error(f"✗ Error: {str(e)}")
+            with st.expander("🔍 See Error Details (File & Line Number)"):
+                st.code(full_error, language="python")
+            print(full_error)
             st.session_state.running = False
         finally:
                 # Always restore originals
@@ -325,15 +330,15 @@ def show():
 
     elif st.session_state.pipeline_result:
         result = st.session_state.pipeline_result 
-        digest = result.ranked_digest
+        digest = result['ranked_digest']
         high   = digest.get("high",   [])
         medium = digest.get("medium", [])
         low    = digest.get("low",    [])
         all_events = high + medium + low
 
         c1, c2, c3, c4, c5 = st.columns(5)
-        c1.metric("📥 Articles Fetched",  result.raw_article_count)
-        c2.metric("🧹 After Filtering",   result.clean_article_count)
+        c1.metric("📥 Articles Fetched",  result['raw_article_count'])
+        c2.metric("🧹 After Filtering",   result['clean_article_count'])
         c3.metric("🗂 Total Events",       len(all_events))
         c4.metric("🔴 High Priority",      len(high))
         c5.metric("🟠 Medium Priority",    len(medium))
@@ -359,7 +364,7 @@ def show():
 
         def render_event_card(e: dict):
             """Render a single event as a styled Streamlit expander."""
-            label = e.get("importance_label", "Low")
+            label = e.get("importance", "Low")
             sent  = e.get("sentiment", "neutral")
             etype = e.get("event_type", "other")
             icon  = EVENT_ICONS.get(etype, "📌")

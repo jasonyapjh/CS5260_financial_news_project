@@ -1,5 +1,5 @@
 # config.yaml
-
+simulation_mode: True
 retrieval:
   lookback_hours: 720          # 7 days — was 24, articles often come in delayed
 

@@ -32,7 +32,7 @@ class PipelineState:
     ranking_critic_max_retries: int = 2
     
     email_output:     dict       = field(default_factory=dict)
-    errors:           list[str]  = field(default_factory=list)
+    errors:           str = ""
     skipped_nodes:    list[str]  = field(default_factory=list)
     
     # UI updates

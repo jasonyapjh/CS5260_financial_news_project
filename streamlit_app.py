@@ -10,7 +10,7 @@ from utils.database import init_db
 from dotenv import load_dotenv
 
 # Import page modules
-from streamlit_pages import watchlist
+from streamlit_pages import history, watchlist
 from streamlit_pages import settings
 from streamlit_pages import dashboard
 
@@ -37,8 +37,8 @@ with st.sidebar:
     
     selected = option_menu(
         menu_title=None,      # Name of the menu
-        options=["Dashboard", "News Analysis", "Portfolio", "Watchlist", "Settings"], 
-        icons=["house", "newspaper", "briefcase", "search", "gear"], 
+        options=["Dashboard", "News Analysis", "Watchlist"], 
+        icons=["house", "newspaper", "search"], 
         menu_icon="cast",            # Icon for the menu title
         default_index=0,             # Default page
 
@@ -69,31 +69,9 @@ if selected == "Dashboard":
 elif selected == "Watchlist":
     watchlist.show()
 elif selected == "News Analysis":
-    st.markdown("""
-    <style>
-    div.stButton > button {
-        background-color: #00d4ff !important;
-        color: white !important;
-        border-radius: 20px !important;
-        padding: 10px 25px !important;
-        font-weight: bold !important;
-        border: none !important;
-        width: 200px !important;
-        box-shadow: 0 0 10px rgba(0, 212, 255, 0.4);
-    }
-    div.stButton > button:hover {
-        background-color: #00b8e6 !important;
-        box-shadow: 0 0 20px rgba(0, 212, 255, 0.6);
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-    # 2. Use a standard button (it will inherit the style above)
-    if st.button("Analyze AAPL :material/chat:"):
-        st.write("Analyzing AAPL news...22")
-    
-elif selected == "Settings":
-    settings.show()
+    history.show()
+# elif selected == "Settings":
+#     settings.show()
 
 
 

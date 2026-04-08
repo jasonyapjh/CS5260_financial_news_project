@@ -69,12 +69,23 @@ class ImpactSummarizationAgent(BaseAgent):
     def __init__(self, config: dict):
         super().__init__(config)
         self.openai_key = os.getenv("OPENAI_API_KEY")
-
+        self.simulation_mode = config.get("simulation_mode", True)
     def run(self, state: PipelineState) -> PipelineState:
         clusters = state.event_clusters
         self.log_start(f"{len(clusters)} event clusters")
         state.current_step = 5
         state.step_logs.append("[Agent 5] Summarizing event clusters (GPT-4o)...")
+
+        if self.simulation_mode:
+            with open("summarization_test_output.json", "r",  encoding='utf-8') as f:
+                data = extract_json(f.read())
+                state = PipelineState(**data)
+                cards = state.event_cards
+                msg = f"[Agent 5] ✓ Generated {len(cards)} event cards (simulated)"
+                state.step_logs.append(msg)
+                self.log_done(msg)
+                return state
+
 
         market_context = state.market_context
         cards: list[dict] = []

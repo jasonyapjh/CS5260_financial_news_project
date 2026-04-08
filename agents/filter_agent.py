@@ -14,6 +14,7 @@ On RETRY (filter_retry_count > 0): critic feedback injected into Pass 3 prompt.
 from __future__ import annotations
 
 import hashlib
+from logging import config
 import os
 from datetime import datetime, timedelta, timezone
 
@@ -48,6 +49,7 @@ class NoiseFilterAgent(BaseAgent):
 
         self._model        = None   # lazy-loaded SentenceTransformer
         self._embeddings_ok = None  # None = not yet tested
+        self.simulation_mode = config.get("simulation_mode", True)
 
     # ── public entry point ────────────────────────────────────────────────────
     def run(self, state: PipelineState) -> PipelineState:
@@ -59,6 +61,15 @@ class NoiseFilterAgent(BaseAgent):
             + (f" [retry #{retry_count}]" if retry_count else "")
         )
         state.current_step = 3
+
+        if self.simulation_mode:
+            with open("filter_test_output.json", "r",  encoding='utf-8') as f:
+                data = extract_json(f.read())
+                state = PipelineState(**data)
+                msg = f"[Agent 3] ✓ {len(state.cleaned_articles)} articles after filtering (simulated)"
+                state.step_logs.append(msg)
+                self.log_done(msg)
+                return state
 
         if retry_count == 0:
             state.step_logs.append("[Agent 3] Running Pass 1 (hard filters)...")

@@ -15,7 +15,7 @@ DATA_DIR.mkdir(exist_ok=True)
 
 # JSON file paths
 WATCHLIST_FILE = DATA_DIR / "watchlist.json"
-# DIGESTS_FILE = DATA_DIR / "digests.json"
+DIGESTS_FILE = DATA_DIR / "digests.json"
 # SETTINGS_FILE = DATA_DIR / "settings.json"
 def _load_json(filepath: Path, default: Any = None) -> Any:
     """Load JSON file, return default if not found"""
@@ -38,7 +38,12 @@ def init_db():
     # Create empty files if they don't exist
     if not WATCHLIST_FILE.exists():
         _save_json(WATCHLIST_FILE, {})
-    
+
+    if not DIGESTS_FILE.exists():
+        _save_json(DIGESTS_FILE, [])
+
+
+        
 def add_ticker(user_id: int, ticker: str) -> bool:
     """Add ticker to user's watchlist"""
     watchlist = _load_json(WATCHLIST_FILE, {})
@@ -115,4 +120,75 @@ def update_ticker_status(user_id: int, ticker: str, status: bool) -> bool:
         _save_json(WATCHLIST_FILE, watchlist)
         return True
         
+    return False
+
+
+def save_digest(user_id: int, digest_data: Dict[str, Any]) -> int:
+    """Save digest to JSON file and return digest ID"""
+    digests = _load_json(DIGESTS_FILE, [])
+    
+    # Generate digest ID
+    digest_id = len(digests) + 1
+    high_events = digest_data.get("high", [])
+    med_events = digest_data.get("medium", [])
+    low_events = digest_data.get("low", [])
+    
+    # Combine all events into one list for storage
+    all_events = high_events + med_events + low_events
+    # Create digest record
+    digest_record = {
+       "id": digest_id,
+        "user_id": user_id,
+        "subject": f"Financial Intelligence Digest - {len(all_events)} Events",
+        "html_digest": digest_data.get("html", ""),
+        "plain_text_digest": digest_data.get("text", ""),
+        "tickers": list(set([e["ticker"] for e in all_events])), # Unique tickers
+        "event_counts": {
+            "high": len(high_events),
+            "medium": len(med_events),
+            "low": len(low_events),
+            "total": len(all_events)
+        },
+        "events": all_events,
+        "created_at": digest_data.get("generated_at", datetime.now().isoformat()),
+        # "execution_time": pipeline_state.execution_time if hasattr(pipeline_state, 'execution_time') else 0,
+        # "agent_timings": pipeline_state.step_logs if hasattr(pipeline_state, 'step_logs') else {},
+    }
+    
+    digests.append(digest_record)
+    _save_json(DIGESTS_FILE, digests)
+    
+    return digest_id
+
+def get_digest_history(user_id: int, limit: int = 20) -> List[Dict[str, Any]]:
+    """Get user's digest history"""
+    digests = _load_json(DIGESTS_FILE, [])
+    
+    # Filter by user and sort by creation date (newest first)
+    user_digests = [d for d in digests if d.get("user_id") == user_id]
+    user_digests.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+    
+    return user_digests[:limit]
+
+def get_digest_detail(digest_id: int) -> Dict[str, Any]:
+    """Get full digest with events"""
+    digests = _load_json(DIGESTS_FILE, [])
+    
+    for digest in digests:
+        if digest.get("id") == digest_id:
+            return digest
+    
+    return None
+
+def delete_digest(digest_id: int) -> bool:
+    """Delete digest from JSON file"""
+    digests = _load_json(DIGESTS_FILE, [])
+    
+    # Find and remove digest
+    for i, digest in enumerate(digests):
+        if digest.get("id") == digest_id:
+            digests.pop(i)
+            _save_json(DIGESTS_FILE, digests)
+            return True
+    
     return False

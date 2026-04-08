@@ -49,6 +49,7 @@ class WatchlistContextAgent(BaseAgent):
     def __init__(self, config: dict):
         super().__init__(config)
         self.openai_key = os.getenv("OPENAI_API_KEY")
+        self.simulation_mode = config.get("simulation_mode", True)
         #self.openai_key = config.get("openai_key", "")
 
     def run(self, state: PipelineState) -> PipelineState:
@@ -61,12 +62,18 @@ class WatchlistContextAgent(BaseAgent):
 
         prompt = PROMPT.format(tickers=", ".join(tickers))
         try:
-            response = call_openai(prompt, self.openai_key)
-            bundles  = extract_json(response)
-            state.query_bundles = bundles
-            state.step_logs.append(
-                f"[Agent 1] ✓ Generated {len(bundles)} query bundles"
-            )
+            if self.simulation_mode:
+                with open("watchlist_test_output.json", "r") as f:
+                    data = extract_json(f.read())
+                    state = PipelineState(**data)
+                    bundles =  state.query_bundles
+            else:
+                response = call_openai(prompt, self.openai_key)
+                bundles  = extract_json(response)
+                state.query_bundles = bundles
+                state.step_logs.append(
+                    f"[Agent 1] ✓ Generated {len(bundles)} query bundles"
+                )
             self.log_done(f"{len(bundles)} bundles produced")
         except Exception as e:
             self.logger.error(f"Failed: {e}")

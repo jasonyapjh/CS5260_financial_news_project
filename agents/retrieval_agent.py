@@ -15,7 +15,8 @@ from datetime import datetime, timezone
 from xml.etree import ElementTree as ET
 
 from core.base_agent import BaseAgent
-from core.state import PipelineState  # Updated import to match your project structure
+from core.state import PipelineState
+from utils.llm import extract_json  # Updated import to match your project structure
 
 # ── Credibility tiers ─────────────────────────────────────────────────────────
 SOURCE_CREDIBILITY: dict[str, float] = {
@@ -54,6 +55,7 @@ class NewsRetrievalAgent(BaseAgent):
 
     def __init__(self, config: dict):
         super().__init__(config)
+        self.simulation_mode = config.get("simulation_mode", True)
 
     # ── public entry point ────────────────────────────────────────────────────
     def run(self, state: PipelineState) -> PipelineState:
@@ -68,36 +70,45 @@ class NewsRetrievalAgent(BaseAgent):
             f"[Agent 2] Fetching from Yahoo Finance RSS, Google News RSS, "
             f"Reuters RSS, Finviz, Seeking Alpha for {len(bundles)} tickers..."
         )
+        if self.simulation_mode:
+            with open("retrieval_test_output.json", "r",  encoding='utf-8') as f:
+                data = extract_json(f.read())
+                state = PipelineState(**data)
+                msg = f"[Agent 2] ✓ {len(state.raw_articles)} articles (simulated)"
+                state.step_logs.append(msg)
+                self.log_done(msg)
+                
+                return state
+        else:
+            seen_urls:    set[str]   = set()
+            all_articles: list[dict] = []
 
-        seen_urls:    set[str]   = set()
-        all_articles: list[dict] = []
+            # Optimization: Parallelize fetching across all bundles (tickers)
+            with ThreadPoolExecutor(max_workers=min(len(bundles) * 6, 12)) as ex:
+                futures = {ex.submit(self._fetch_bundle, b): b for b in bundles}
+                for future in as_completed(futures):
+                    try:
+                        for art in future.result():
+                            if art["url"] not in seen_urls:
+                                seen_urls.add(art["url"])
+                                all_articles.append(art)
+                    except Exception as e:
+                        # Access bundle dictionary key safely
+                        ticker = futures[future].get("ticker", "?")
+                        self.logger.warning(f"Bundle fetch error ({ticker}): {e}")
 
-        # Optimization: Parallelize fetching across all bundles (tickers)
-        with ThreadPoolExecutor(max_workers=min(len(bundles) * 6, 12)) as ex:
-            futures = {ex.submit(self._fetch_bundle, b): b for b in bundles}
-            for future in as_completed(futures):
-                try:
-                    for art in future.result():
-                        if art["url"] not in seen_urls:
-                            seen_urls.add(art["url"])
-                            all_articles.append(art)
-                except Exception as e:
-                    # Access bundle dictionary key safely
-                    ticker = futures[future].get("ticker", "?")
-                    self.logger.warning(f"Bundle fetch error ({ticker}): {e}")
+            # Sort by date (newest first)
+            all_articles.sort(key=lambda a: a.get("published_at", ""), reverse=True)
 
-        # Sort by date (newest first)
-        all_articles.sort(key=lambda a: a.get("published_at", ""), reverse=True)
-
-        # Generate summary for logging
-        source_counts: dict[str, int] = {}
-        for art in all_articles:
-            source_counts[art["source"]] = source_counts.get(art["source"], 0) + 1
-        
-        summary = ", ".join(
-            f"{s}: {n}"
-            for s, n in sorted(source_counts.items(), key=lambda x: -x[1])
-        )
+            # Generate summary for logging
+            source_counts: dict[str, int] = {}
+            for art in all_articles:
+                source_counts[art["source"]] = source_counts.get(art["source"], 0) + 1
+            
+            summary = ", ".join(
+                f"{s}: {n}"
+                for s, n in sorted(source_counts.items(), key=lambda x: -x[1])
+            )
 
         # 3. Save to state using dot notation
         state.raw_articles = all_articles

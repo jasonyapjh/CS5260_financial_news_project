@@ -72,6 +72,7 @@ class FilterCriticAgent(BaseAgent):
         self.openai_key  = os.getenv("OPENAI_API_KEY")
         self.pass_threshold = config.get("filter_pass_threshold", PASS_THRESHOLD)
         self.max_retries    = config.get("filter_critic_max_retries", MAX_RETRIES)
+        self.simulation_mode = config.get("simulation_mode", True)
 
     # ── public entry point ────────────────────────────────────────────────────
     def run(self, state: PipelineState) -> PipelineState:
@@ -89,6 +90,18 @@ class FilterCriticAgent(BaseAgent):
             f"[Filter Critic] Evaluating filter quality — {n} articles "
             f"(attempt {retry_count + 1}/{self.max_retries + 1})..."
         )
+
+        if self.simulation_mode:
+              with open("filter_critic_test_output.json", "r",  encoding='utf-8') as f:
+                data = extract_json(f.read())
+                state = PipelineState(**data)
+                msg = f"[Agent 3] ✓ {len(state.cleaned_articles)} no critic issues (simulated)"
+                state.step_logs.append(msg)
+                self.log_done(msg)
+                return state
+
+
+
 
         # ── edge case: no articles ────────────────────────────────────────────
         if n == 0:

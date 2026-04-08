@@ -18,26 +18,41 @@ from __future__ import annotations
 
 import math
 from datetime import datetime, timezone
-
+from utils.llm import call_openai, extract_json
 from core.base_agent import BaseAgent
 from core.state import PipelineState
 
 
 EVENT_TYPE_WEIGHTS: dict[str, float] = {
-    "earnings_release": 0.95, "dividend": 0.75, "guidance_update": 0.85,
-    "ma_announcement":  0.90, "regulatory_action": 0.80, "capital_action": 0.75,
-    "leadership_change": 0.70, "litigation": 0.70, "product_launch": 0.60,
-    "analyst_rating":   0.60, "general_news": 0.35,
+    "earnings_release": 0.95, 
+    "dividend": 0.75, 
+    "guidance_update": 0.85,
+    "ma_announcement":  0.90, 
+    "regulatory_action": 0.80, 
+    "capital_action": 0.75,
+    "leadership_change": 0.70, 
+    "litigation": 0.70, 
+    "product_launch": 0.60,
+    "analyst_rating":   0.60, 
+    "general_news": 0.35,
     # legacy aliases
     "earnings": 0.95, "guidance": 0.85, "M&A": 0.90,
     "regulation": 0.80, "macro": 0.50, "market_trend": 0.40, "other": 0.35,
 }
 
 SOURCE_CREDIBILITY: dict[str, float] = {
-    "sgx": 1.00, "mas": 1.00,
-    "business times": 0.85, "straits times": 0.85, "reuters": 0.85, "bloomberg": 0.85,
-    "cna": 0.70, "nikkei": 0.70, "cnbc": 0.70, "seeking alpha": 0.70,
-    "yahoo": 0.55, "finviz": 0.55,
+    "sgx": 1.00, 
+    "mas": 1.00,
+    "business times": 0.85, 
+    "straits times": 0.85, 
+    "reuters": 0.85, 
+    "bloomberg": 0.85,
+    "cna": 0.70, 
+    "nikkei": 0.70, 
+    "cnbc": 0.70, 
+    "seeking alpha": 0.70,
+    "yahoo": 0.55, 
+    "finviz": 0.55,
 }
 DEFAULT_CRED = 0.55
 
@@ -55,6 +70,7 @@ class ImportanceRankingAgent(BaseAgent):
         super().__init__(config)
         self.high_t = config.get("high_threshold", HIGH_T_DEFAULT)
         self.med_t  = config.get("med_threshold",  MED_T_DEFAULT)
+        self.simulation_mode = config.get("simulation_mode", True)
 
     def run(self, state: PipelineState) -> PipelineState:
         try:
@@ -68,6 +84,16 @@ class ImportanceRankingAgent(BaseAgent):
                 + (f" [retry #{retry_count}]" if retry_count else "")
             )
             state.current_step = 6
+
+            if self.simulation_mode:
+                with open("ranking_test_output.json", "r",  encoding='utf-8') as f:
+                    data = extract_json(f.read())
+                    state = PipelineState(**data)
+                    cards = state.event_cards
+                    msg = f"[Agent 6] ✓ Ranked {len(cards)} events (simulated)"
+                    state.step_logs.append(msg)
+                    self.log_done(msg)
+                    return state
 
             if retry_count == 0:
                 state.step_logs.append("[Agent 6] Scoring and ranking events...")

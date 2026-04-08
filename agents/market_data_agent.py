@@ -40,7 +40,8 @@ Usage in pipeline (LangGraph parallel):
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
-
+from core.state import PipelineState
+from utils.llm import call_openai, extract_json
 from core.base_agent import BaseAgent
 from data.collectors.stock_price_collector import StockPriceCollector, MarketSnapshot
 
@@ -61,6 +62,7 @@ class MarketDataAgent(BaseAgent):
         self.collector    = StockPriceCollector(config)
         self.max_workers  = config.get("market_data_max_workers", 6)
         self.volume_spike = config.get("market_data", {}).get("volume_spike_threshold", 2.0)
+        self.simulation_mode = config.get("simulation_mode", True)
 
     def run(self, watchlist: list[str]) -> dict[str, MarketSnapshot]:
         self.log_start(
@@ -69,34 +71,44 @@ class MarketDataAgent(BaseAgent):
 
         market_context: dict[str, MarketSnapshot] = {}
 
-        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            futures = {
-                executor.submit(self.collector._fetch_one, ticker): ticker
-                for ticker in watchlist
-            }
-            for future in as_completed(futures):
-                ticker = futures[future]
-                try:
-                    snapshot = future.result()
-                    if snapshot:
-                        market_context[ticker] = snapshot
-                except Exception as e:
-                    self.logger.warning(
-                        f"[MarketData] {ticker}: snapshot failed — {e}"
-                    )
-
-        volume_spikes = self.collector.get_volume_spike_tickers(
-            market_context, threshold=self.volume_spike
-        )
-        if volume_spikes:
-            self.logger.info(
-                f"[MarketData] Volume spikes detected: {volume_spikes}"
+        if self.simulation_mode:
+            with open("market_data_test_output.json", "r",  encoding='utf-8') as f:
+                data = extract_json(f.read())
+                state = PipelineState(**data)
+                market_context = state.market_context
+            self.log_done(
+                f"Simulation mode: Loaded market context for {len(market_context)} tickers."
             )
+            return market_context
+        else:
+            with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+                futures = {
+                    executor.submit(self.collector._fetch_one, ticker): ticker
+                    for ticker in watchlist
+                }
+                for future in as_completed(futures):
+                    ticker = futures[future]
+                    try:
+                        snapshot = future.result()
+                        if snapshot:
+                            market_context[ticker] = snapshot
+                    except Exception as e:
+                        self.logger.warning(
+                            f"[MarketData] {ticker}: snapshot failed — {e}"
+                        )
 
-        self.log_done(
-            f"Market data fetched for {len(market_context)}/{len(watchlist)} tickers. "
-            f"{len(volume_spikes)} volume spike(s) detected."
-        )
+            volume_spikes = self.collector.get_volume_spike_tickers(
+                market_context, threshold=self.volume_spike
+            )
+            if volume_spikes:
+                self.logger.info(
+                    f"[MarketData] Volume spikes detected: {volume_spikes}"
+                )
+
+            self.log_done(
+                f"Market data fetched for {len(market_context)}/{len(watchlist)} tickers. "
+                f"{len(volume_spikes)} volume spike(s) detected."
+            )
         return market_context
 
     # ------------------------------------------------------------------
