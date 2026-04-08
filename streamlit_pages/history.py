@@ -93,7 +93,7 @@ def show():
         })
     
     df = pd.DataFrame(df_data).sort_values("Date", ascending=False)
-    st.dataframe(df, use_container_width=True, hide_index=True)
+    st.dataframe(df, width="stretch", hide_index=True)
     
     st.divider()
     
@@ -142,7 +142,7 @@ def show():
                     data=html_data,
                     file_name=f"fintel_digest_{selected_id}.html",
                     mime="text/html",
-                    use_container_width=True
+                    width="stretch"
                 )
                 
                 # Text Export
@@ -152,11 +152,11 @@ def show():
                     data=text_data,
                     file_name=f"fintel_digest_{selected_id}.txt",
                     mime="text/plain",
-                    use_container_width=True
+                    width="stretch"
                 )
                 
                 # Delete
-                if col3.button("🗑️ Delete Permanently", type="secondary", use_container_width=True):
+                if col3.button("🗑️ Delete Permanently", type="secondary", width="stretch"):
                     if delete_digest(selected_id):
                         st.success("Deleted!")
                         st.rerun()
