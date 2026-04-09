@@ -64,7 +64,8 @@ class MarketDataAgent(BaseAgent):
         self.volume_spike = config.get("market_data", {}).get("volume_spike_threshold", 2.0)
         self.simulation_mode = config.get("simulation_mode", True)
 
-    def run(self, watchlist: list[str]) -> dict[str, MarketSnapshot]:
+    def run(self, state: PipelineState) -> PipelineState:
+        watchlist = state.watchlist
         self.log_start(
             f"Fetching market data for {len(watchlist)} tickers."
         )
@@ -75,11 +76,10 @@ class MarketDataAgent(BaseAgent):
             with open("market_data_test_output.json", "r",  encoding='utf-8') as f:
                 data = extract_json(f.read())
                 state = PipelineState(**data)
-                market_context = state.market_context
             self.log_done(
-                f"Simulation mode: Loaded market context for {len(market_context)} tickers."
+                f"Simulation mode: Loaded market context for {len(state.market_context)} tickers."
             )
-            return market_context
+            return state
         else:
             with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
                 futures = {
@@ -109,7 +109,8 @@ class MarketDataAgent(BaseAgent):
                 f"Market data fetched for {len(market_context)}/{len(watchlist)} tickers. "
                 f"{len(volume_spikes)} volume spike(s) detected."
             )
-        return market_context
+            state.market_context = market_context
+        return state
 
     # ------------------------------------------------------------------
     # Helpers for downstream agents
@@ -193,3 +194,6 @@ class MarketDataAgent(BaseAgent):
             return delta <= days_window
         except Exception:
             return False
+def market_data_agent(state: PipelineState) -> PipelineState:
+    agent = MarketDataAgent({})
+    return agent.run(state)

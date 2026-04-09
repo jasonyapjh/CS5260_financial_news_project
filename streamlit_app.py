@@ -3,7 +3,6 @@ import yfinance as yf
 
 
 from streamlit_option_menu import option_menu
-from streamlit_elements import elements, mui, html
 #from utils.helper import search_symbols
 from utils.session import init_session
 from utils.database import init_db

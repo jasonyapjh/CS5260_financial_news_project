@@ -1,7 +1,7 @@
 """
 agents/filter_critic_agent.py
 ------------------------------
-Critic A — FilterCriticAgent
+FilterCriticAgent
 
 Evaluates Agent 3's (NoiseFilterAgent) output and decides:
   PASS  → proceed to Agent 4 (EventClusteringAgent)

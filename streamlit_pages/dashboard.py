@@ -1,8 +1,18 @@
 import os
 
+from langgraph.graph import StateGraph
+from langgraph.graph import StateGraph
 import streamlit as st
+from agents.filter_agent import NoiseFilterAgent
+from agents.retrieval_agent import NewsRetrievalAgent
 from agents.watchlist_agent import WatchlistContextAgent
-from utils.config_loader import load_config
+from agents.clustering_agent import EventClusteringAgent
+from agents.summarization_agent import ImpactSummarizationAgent
+from agents.ranking_agent import ImportanceRankingAgent
+from agents.notification_agent import NotificationAgent
+# from utils.config_loader import load_config
+from core.state import PipelineState
+from files import app
 from utils.database import get_user_watchlist, update_ticker_status, save_digest
 from utils.session import reset_digest_state, add_to_history
 
@@ -211,33 +221,11 @@ def show():
 
         log_box = st.empty()
 
-
-        #from agents.watchlist_agent import WatchlistContextAgent
-        
-        import agents.watchlist_agent as wa
-        import agents.retrieval_agent as ra
-        import agents.filter_agent as fa
-        import agents.clustering_agent as ca
-        import agents.summarization_agent as sa
-        import agents.ranking_agent as rna
-        import agents.notification_agent as na
-
-        config = load_config('config/config.yaml')
-        watchlist_agent = WatchlistContextAgent({**config, "openai_key": os.getenv("OPENAI_API_KEY")})
-        
-        _originals = {
-            "watchlist": wa.watchlist_agent,
-            "retrieval": ra.retrieval_agent,
-            "filter": fa.filter_agent,
-            "cluster": ca.clustering_agent,
-            "summarization": sa.summarization_agent,
-            "ranking": rna.ranking_agent,
-            "notification": na.notification_agent
-        }
-
-        def make_wrapper(fn, step_idx):
-            def wrapper(state):
-                # Mark active
+        def make_streamlit_node(agent_class, step_idx, step_name, config, step_containers):
+            """
+            Creates a LangGraph node that updates Streamlit UI components in real-time.
+            """
+            def node_func(state: PipelineState) -> PipelineState:
                 icon_slot, name_slot, log_slot = step_containers[step_idx - 1]
                 icon_slot.markdown(
                     f"<div style='width:32px;height:32px;border-radius:50%;"
@@ -252,8 +240,9 @@ def show():
                     (step_idx - 1) / 7,
                     text=f"Agent {step_idx}/7: {STEP_NAMES[step_idx-1]}",
                 )
-
-                result = fn(state)
+                agent_instance = agent_class(global_config)
+                result = agent_instance.run(state)
+                # result = fn(state)
 
                 # Mark done
                 icon_slot.markdown(
@@ -276,26 +265,146 @@ def show():
                     st.session_state.step_logs = logs
                 # print(logs)
                 overall_progress.progress(step_idx / 7, text=f"Agent {step_idx}/7 complete")
+                    
                 return result
-            return wrapper
+
+            return node_func
+    
+        from agents.watchlist_agent import WatchlistContextAgent
+        from agents.retrieval_agent import NewsRetrievalAgent
+        from agents.filter_agent import NoiseFilterAgent
+        from agents.clustering_agent import EventClusteringAgent
+        from agents.summarization_agent import ImpactSummarizationAgent
+        from agents.ranking_agent import ImportanceRankingAgent
+        from agents.notification_agent import NotificationAgent
         
-        wa.watchlist_agent     = make_wrapper(_originals["watchlist"],     1)
-        ra.retrieval_agent     = make_wrapper(_originals["retrieval"],     2)
-        fa.filter_agent        = make_wrapper(_originals["filter"],        3)
-        ca.clustering_agent    = make_wrapper(_originals["cluster"],       4)
-        sa.summarization_agent = make_wrapper(_originals["summarization"], 5)
-        rna.ranking_agent = make_wrapper(_originals["ranking"], 6)
-        na.notification_agent = make_wrapper(_originals["notification"], 7)
+        from utils.config_loader import load_config
+
+        global_config = load_config("D:\\NUS\\NN2\\CS5260_financial_news_project\\config\\config.yaml")
+
+        nodes = {
+            "watchlist": make_streamlit_node(WatchlistContextAgent, 1, "Watchlist", global_config, step_containers),
+            "retrieval": make_streamlit_node(NewsRetrievalAgent, 2, "News Fetch", global_config, step_containers),
+            "filter": make_streamlit_node(NoiseFilterAgent, 3, "Filtering", global_config, step_containers),
+            "clustering": make_streamlit_node(EventClusteringAgent, 4, "Clustering", global_config, step_containers),
+            "summarization": make_streamlit_node(ImpactSummarizationAgent, 5, "Summarization", global_config, step_containers),
+            "ranking": make_streamlit_node(ImportanceRankingAgent, 6, "Ranking", global_config, step_containers),
+            "notification": make_streamlit_node(NotificationAgent, 7, "Digest Packaging", global_config, step_containers)
+        }
+        # _originals = {
+        #     "watchlist": wa.watchlist_agent,
+        #     "retrieval": ra.retrieval_agent,
+        #     "filter": fa.filter_agent,
+        #     "cluster": ca.clustering_agent,
+        #     "summarization": sa.summarization_agent,
+        #     "ranking": rna.ranking_agent,
+        #     "notification": na.notification_agent
+        # }
+
+        # def make_wrapper(fn, step_idx):
+        #     def wrapper(state):
+        #         # Mark active
+        #         icon_slot, name_slot, log_slot = step_containers[step_idx - 1]
+        #         icon_slot.markdown(
+        #             f"<div style='width:32px;height:32px;border-radius:50%;"
+        #             f"border:1px solid #00c8ff;background:rgba(0,200,255,.1);"
+        #             f"display:flex;align-items:center;justify-content:center;"
+        #             f"font-family:JetBrains Mono;font-size:12px;color:#00c8ff'>{step_idx}</div>",
+        #             unsafe_allow_html=True,
+        #         )
+        #         name_slot.markdown(f"<span style='color:#f1f5f9;font-weight:700'>{STEP_NAMES[step_idx-1]}</span>", unsafe_allow_html=True)
+        #         log_slot.markdown("<span style='font-size:12px;color:#00c8ff;'>Running…</span>", unsafe_allow_html=True)
+        #         overall_progress.progress(
+        #             (step_idx - 1) / 7,
+        #             text=f"Agent {step_idx}/7: {STEP_NAMES[step_idx-1]}",
+        #         )
+        #         # agent_instance = agent_class(global_config)
+        #         # result = agent_instance.run(state)
+        #         result = fn(state)
+
+        #         # Mark done
+        #         icon_slot.markdown(
+        #             f"<div style='width:32px;height:32px;border-radius:50%;"
+        #             f"border:1px solid #22c55e;background:#22c55e;"
+        #             f"display:flex;align-items:center;justify-content:center;"
+        #             f"font-size:14px;color:#000'>✓</div>",
+        #             unsafe_allow_html=True,
+        #         )
+        #         name_slot.markdown(f"<span style='color:#22c55e;font-weight:700'>{STEP_NAMES[step_idx-1]}</span>", unsafe_allow_html=True)
+
+        #         # Show latest log line
+        #         logs = result.step_logs
+        #         if logs:
+        #             last = logs[-1]
+        #             log_slot.markdown(
+        #                 f"<span style='font-size:15px;color:#22c55e;'>{last}</span>",
+        #                 unsafe_allow_html=True,
+        #             )
+        #             st.session_state.step_logs = logs
+        #         # print(logs)
+        #         overall_progress.progress(step_idx / 7, text=f"Agent {step_idx}/7 complete")
+        #         return result
+        #     return wrapper
+
+        # wa.watchlist_agent     = make_wrapper(_originals["watchlist"],     1)
+        # ra.retrieval_agent     = make_wrapper(_originals["retrieval"],     2)
+        # fa.filter_agent        = make_wrapper(_originals["filter"],        3)
+        # ca.clustering_agent    = make_wrapper(_originals["cluster"],       4)
+        # sa.summarization_agent = make_wrapper(_originals["summarization"], 5)
+        # rna.ranking_agent = make_wrapper(_originals["ranking"], 6)
+        # na.notification_agent = make_wrapper(_originals["notification"], 7)
         
         try:
             status_text.info("🔄 Starting pipeline execution...")
 
-            from agents.pipeline import run_pipeline
-            result = run_pipeline(watchlist=active_tickers, openai_key='')
+            from langgraph.graph import StateGraph, END
+
+            def should_continue(state: PipelineState) -> str:
+                """Route: abort on error, else continue."""
+                return "abort" if state.errors else "continue"
+
+            def abort_node(state: PipelineState) -> PipelineState:
+                state.step_logs.append(f"[Pipeline] ✗ Aborted: {state.errors}")
+                state.ranked_digest = {"high": [], "medium": [], "low": [], "generated_at": "", "html": "", "text": ""}
+                return state
+
+            g = StateGraph(PipelineState)
+
+            g.add_node("watchlist", nodes["watchlist"])
+            g.add_node("retrieval", nodes["retrieval"])
+            # g.add_node("market_context", market_data_agent)  
+
+            g.add_node("filter", nodes["filter"])
+            g.add_node("clustering", nodes["clustering"])
+            g.add_node("summarization", nodes["summarization"])
+            g.add_node("ranking", nodes["ranking"])
+            g.add_node("notification", nodes["notification"])
+            g.add_node("abort", abort_node)
+            g.set_entry_point("watchlist")
+
+            for src, dst in [
+                ("watchlist",     "retrieval"),
+                ("retrieval",     "filter"),
+                ("filter",        "clustering"),
+                ("clustering",    "summarization"),
+                ("summarization", "ranking"),
+                ("ranking",       "notification"),
+            ]:
+                g.add_conditional_edges(
+                    src,
+                    should_continue,
+                    {"continue": dst, "abort": "abort"},
+                )
+            g.add_edge("notification", END)
+            g.add_edge("abort", END)
+            # g.set_finish_point("watchlist")
+
+            graph = g.compile()
+            result = graph.invoke(PipelineState(watchlist=active_tickers))
+            #from agents.pipeline import run_pipeline
+            #result = run_pipeline(watchlist=active_tickers, openai_key='')
             
-            # output_path = "final_output.json"
-            # with open(output_path, "w") as f:
-            #     json.dump(result, f, indent=4)
+         
             if result['errors']:
                 st.error(f"Pipeline error: {result['errors']}")
                 st.session_state.running = False
@@ -316,14 +425,15 @@ def show():
             print(full_error)
             st.session_state.running = False
         finally:
+                st.text("Restoring agent functions...")
                 # Always restore originals
-                wa.watchlist_agent = _originals["watchlist"]
-                ra.retrieval_agent = _originals["retrieval"]
-                fa.filter_agent = _originals["filter"]
-                ca.clustering_agent    = _originals["cluster"]
-                sa.summarization_agent = _originals["summarization"]
-                rna.ranking_agent = _originals["ranking"]
-                na.notification_agent = _originals["notification"]
+                # wa.watchlist_agent = _originals["watchlist"]
+                # ra.retrieval_agent = _originals["retrieval"]
+                # fa.filter_agent = _originals["filter"]
+                # ca.clustering_agent    = _originals["cluster"]
+                # sa.summarization_agent = _originals["summarization"]
+                # rna.ranking_agent = _originals["ranking"]
+                # na.notification_agent = _originals["notification"]
         if st.session_state.pipeline_result:
             time.sleep(0.5)
             st.rerun()

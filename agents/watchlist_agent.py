@@ -17,6 +17,7 @@ from utils.llm import call_openai, extract_json
 from core.state import PipelineState
 from dotenv import load_dotenv
 load_dotenv()
+
 PROMPT = """Given these stock tickers, create a structured query bundle for each one.
 
 Return a JSON array. Each item must follow this exact schema:
